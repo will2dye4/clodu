@@ -4,7 +4,7 @@ Clodu is an implementation of [Shanghai](https://en.wikipedia.org/wiki/Shanghai_
 Shanghai Rum or Shanghai Rummy) in Clojure.
 
 > 魔都 (Módū, "Magical City"), a contemporary nickname for Shanghai, is widely known among the youth.
-&mdash; [Wikipedia](https://en.wikipedia.org/wiki/Shanghai#Alternative_names)
+<br /> &mdash; [Wikipedia](https://en.wikipedia.org/wiki/Shanghai#Alternative_names)
 
 The name **Clodu** is a portmanteau of "Clojure," the programming language, and "Modu," a nickname
 for the city of Shanghai.
