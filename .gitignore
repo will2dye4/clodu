@@ -1,12 +1,15 @@
 /target
 /classes
 /checkouts
-profiles.clj
+/Clojure REPL
 pom.xml
 pom.xml.asc
+*.iml
 *.jar
 *.class
 /.lein-*
 /.nrepl-port
 .hgignore
 .hg/
+.idea/
+native/

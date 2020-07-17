@@ -1,44 +1,21 @@
 # clodu
 
-FIXME: description
+Clodu is an implementation of [Shanghai](https://en.wikipedia.org/wiki/Shanghai_rum) (also known as
+Shanghai Rum or Shanghai Rummy) in Clojure.
 
-## Installation
+> 魔都 (Módū, "Magical City"), a contemporary nickname for Shanghai, is widely known among the youth.
+&mdash; [Wikipedia](https://en.wikipedia.org/wiki/Shanghai#Alternative_names)
 
-Download from http://example.com/FIXME.
+The name **Clodu** is a portmanteau of "Clojure," the programming language, and "Modu," a nickname
+for the city of Shanghai.
+
+**NOTE:** This project is a work in progress. It is currently not very fully featured. Sorry about that.
+
+## Installing
+
+This project is currently not published anywhere. You may clone this repository and run
+locally using [Leiningen](https://leiningen.org).
 
 ## Usage
 
-FIXME: explanation
-
-    $ java -jar clodu-0.1.0-standalone.jar [args]
-
-## Options
-
-FIXME: listing of options this app accepts.
-
-## Examples
-
-...
-
-### Bugs
-
-...
-
-### Any Other Sections
-### That You Think
-### Might be Useful
-
-## License
-
-Copyright © 2020 FIXME
-
-This program and the accompanying materials are made available under the
-terms of the Eclipse Public License 2.0 which is available at
-http://www.eclipse.org/legal/epl-2.0.
-
-This Source Code may also be made available under the following Secondary
-Licenses when the conditions for such availability set forth in the Eclipse
-Public License, v. 2.0 are satisfied: GNU General Public License as published by
-the Free Software Foundation, either version 2 of the License, or (at your
-option) any later version, with the GNU Classpath Exception which is available
-at https://www.gnu.org/software/classpath/license.html.
+This section will be updated as functionality is added. Check back soon!
