@@ -3,6 +3,12 @@
 
 (def enumerate (partial map-indexed vector))
 
+(defn map-vals
+  ([f m]
+    (map-vals f {} m))
+  ([f init m]
+    (reduce-kv #(assoc %1 %2 (f %3)) init m)))
+
 (defn make-printable
   ([type] (make-printable type symbol))
   ([type coerce]
