@@ -64,7 +64,7 @@
   (let [deck (for [suit (vals suits) rank (vals ranks)] (Card. rank suit))]
     (vec (concat deck (repeat num-jokers-per-deck joker)))))
 
-(defn new-decks [n] (flatten (repeatedly n new-deck)))
+(defn new-decks [n] (vec (flatten (repeatedly n new-deck))))
 
 (defn draw
   ([deck] [(first deck) (vec (rest deck))])
