@@ -1,5 +1,6 @@
 (ns clodu.cards
-  (:require [clodu.constants :refer [num-jokers-per-deck]]
+  (:require [clojure.set :as set]
+            [clodu.constants :refer [num-jokers-per-deck]]
             [clodu.utils :refer [enumerate make-printable sorted-map-by-value]]))
 
 (defrecord Suit [value symbol]
@@ -37,24 +38,32 @@
              (into {} (for [[i [key symbol name]] (enumerate rank-data)]
                         [key (Rank. key (+ i 2) symbol name)]))))
 
-(def ^:private joker-rank (inc (:value (ranks :ace))))
-
-(declare is-joker?)
+(def ^:private joker-rank (Rank. :joker (inc (:value (ranks :ace))) "<?>" "joker"))
 
 (defrecord Card [rank suit]
   Comparable
-    (compareTo [card other]
-      (let [rank (if (is-joker? card) joker-rank (:value rank))
-            other-rank (if (is-joker? other) joker-rank (:value (:rank other)))]
-        (compare [rank suit] [other-rank (:suit other)])))
+    (compareTo [_ other] (compare [rank suit] [(:rank other) (:suit other)]))
   Object
-    (toString [card] (if (is-joker? card) "<?>" (str rank suit))))
+    (toString [_] (str rank (or suit ""))))
 
 (make-printable Card)
 
-(def ^:const joker (Card. :joker nil))
+(def ^:const joker (Card. joker-rank nil))
 
 (defn is-joker? [card] (= joker card))
+
+(defn is-wild-card? [wild-cards card]
+  {:pre [(set? wild-cards)]}
+  (boolean (wild-cards (:key (:rank card)))))
+
+(defn excluding [unwanted cards]
+  (->> unwanted
+       set
+       (set/difference (set cards))))
+
+(defn excluding-wild-cards [wild-cards cards]
+  {:pre [(set? wild-cards) (seqable? cards)]}
+  (filter (complement (partial is-wild-card? wild-cards)) cards))
 
 (defn sort-cards [cards] (-> cards sort reverse vec))
 
