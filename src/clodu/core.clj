@@ -23,6 +23,8 @@
       (when (and rank suit)
         (->Card rank suit)))))
 
+(defn cs [& rank-suits] (map c rank-suits))
+
 (defn -main
   "I don't do a whole lot ... yet."
   [& args]

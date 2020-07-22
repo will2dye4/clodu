@@ -3,7 +3,19 @@
             [clodu.constants :refer [max-players min-players]]
             [clodu.contract :refer [default-contracts]]
             [clodu.player :refer [new-player]]
-            [clodu.utils :refer [map-vals]]))
+            [clodu.utils :refer [map-vals sum]]))
+
+(def ^:const default-wild-cards #{:2 :joker})
+
+;; Dye family house rules
+(def ^:private default-ranks->points {#{:3 :4 :5 :6 :7 :8 :9} 5
+                                      #{:10 :jack :queen :king} 10
+                                      #{:ace} 15
+                                      default-wild-cards 25})
+
+(def ->point-values (partial reduce-kv #(apply assoc %1 (interleave %2 (repeat %3))) {}))
+
+(def ^:const default-point-values (->point-values default-ranks->points))
 
 ;; Dye family house rules
 (def ^:const default-rules
@@ -14,8 +26,9 @@
    :buying-penalty 1                        ;; number of penalty cards to draw when buying
    :cards-per-hand 11                       ;; number of cards dealt to each player for each hand
    :max-buys-per-hand 3                     ;; other variations use allow 4 buys for hands 9-10
+   :point-values default-point-values       ;; point values to use for scoring
    :require-down-and-out :last-hand         ;; or :always, or :never
-   :wild-cards #{:2 :joker}})               ;; ranks to consider 'wild'
+   :wild-cards default-wild-cards})         ;; ranks to consider 'wild'
 
 (defn num-decks [num-players]
   {:pre [(<= min-players num-players max-players)]}
@@ -75,7 +88,7 @@
         (assoc :deck deck)
         (update-players players))))
 
-(defn round-of-play [game])  ;; TODO
+(defn round-of-play [game] game)  ;; TODO
 
 (defn discard [game card])  ;; TODO
 
@@ -97,17 +110,26 @@
    :contract (current-contract game)
    :allowed-actions (available-actions game player)})
 
-(defn tally-scores [game])  ;; TODO
+(defn score-hand
+  ([hand] (score-hand hand default-point-values))
+  ([hand point-values] (sum (map (comp point-values :key :rank) hand))))
 
-;; TODO - add discard pile
+(defn tally-scores [game]
+  (let [point-values (get-in game [:rules :point-values])
+        update-score (fn [player] (update player :score + (score-hand (:hand player) point-values)))]
+    (update-players game (map update-score (players game)))))
+
+;; TODO - add player melds
 (defn recycle-cards [game]
-  (let [players (players game)
+  (let [{:keys [current-hand]} game
+        players (players game)
         hands (->> players
                    (map :hand)
                    (remove nil?)
-                   flatten)]
+                   flatten)
+        cards (concat hands (:discards current-hand))]
     (-> game
-        (update :deck add hands)
+        (update :deck add cards)
         (update-players (map #(dissoc %1 :hand) players)))))
 
 (defn conclude-hand [game]

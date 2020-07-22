@@ -3,6 +3,8 @@
 
 (def enumerate (partial map-indexed vector))
 
+(def sum (partial reduce +))
+
 (defn map-vals
   ([f m]
     (map-vals f {} m))
