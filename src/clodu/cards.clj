@@ -56,6 +56,8 @@
   {:pre [(set? wild-cards)]}
   (boolean (wild-cards (:key (:rank card)))))
 
+(def is-natural-card? (complement is-wild-card?))
+
 (defn excluding [unwanted cards]
   (->> unwanted
        set
@@ -63,7 +65,7 @@
 
 (defn excluding-wild-cards [wild-cards cards]
   {:pre [(set? wild-cards) (seqable? cards)]}
-  (filter (complement (partial is-wild-card? wild-cards)) cards))
+  (filter (partial is-natural-card? wild-cards) cards))
 
 (defn sort-cards [cards] (-> cards sort reverse vec))
 

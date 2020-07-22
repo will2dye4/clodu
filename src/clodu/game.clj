@@ -4,8 +4,7 @@
 
 ;; Dye family house rules
 (def ^:const default-rules
-  {:allow-any-number-of-wild-cards? false   ;; must have >= 1/2 natural cards
-   :allow-buying? true                      ;; can 'buy' cards out of turn
+  {:allow-buying? true                      ;; can 'buy' cards out of turn
    :allow-calling-shanghai? false           ;; if true, allows preventing others from drawing your discard
    :allow-initial-wild-upcard? false        ;; reshuffle deck if initial upcard is wild
    :allow-replacing-jokers? true            ;; substitute naturals for jokers once you are down
