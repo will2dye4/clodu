@@ -86,6 +86,12 @@
          deck (vec (drop n deck))]
      [cards deck])))
 
+(defn draw-hands [n cards-per-hand deck]
+  (let [num-cards (* cards-per-hand n)
+        [top-cards deck] (draw num-cards deck)
+        hands (mapv sort-cards (partition cards-per-hand top-cards))]
+    [hands deck]))
+
 (defn add [deck cards]
   (if (sequential? cards)
     (apply conj deck cards)
