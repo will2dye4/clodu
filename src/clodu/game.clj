@@ -1,9 +1,9 @@
 (ns clodu.game
-  (:require [clodu.cards :refer [add draw-hands new-decks]]
+  (:require [clodu.cards :refer [add draw draw-hands new-decks]]
             [clodu.constants :refer [max-players min-players]]
             [clodu.contract :refer [default-contracts]]
             [clodu.player :refer [new-player]]
-            [clodu.utils :refer [map-vals sum]]))
+            [clodu.utils :refer [map-vals rotate sum]]))
 
 (def ^:const default-wild-cards #{:2 :joker})
 
@@ -38,24 +38,27 @@
 
 (defn new-hand [contract] (Hand. contract []))
 
-(defrecord Game [players rules contracts deck hands action-fn])
+(defrecord Game [players rules contracts deck hands draw-choice-fn action-fn])
 
 (def default-num-players 4)
 
-(defn default-action-fn [state] nil)  ;; TODO
+(defn default-draw-choice-fn [player upcard] :deck)  ;; TODO
+
+(defn default-action-fn [state] [{:action :discard, :card (:new-card state)}])  ;; TODO
 
 (defn ->player-map [players]
   (->> players
        (map #(vector (:id %) %))
        (into (sorted-map))))
 
-(defn new-game [& {:keys [players rules contracts num-players action-fn]
+(defn new-game [& {:keys [players rules contracts num-players draw-choice-fn action-fn]
                    :or {players nil, rules default-rules, contracts default-contracts,
-                        num-players default-num-players, action-fn default-action-fn}}]
+                        num-players default-num-players, draw-choice-fn default-draw-choice-fn,
+                        action-fn default-action-fn}}]
   {:pre [(let [n (if players (count players) num-players)] (> n 1))]}
   (let [players (->player-map (or players (map new-player (map inc (range num-players)))))
         deck (shuffle (new-decks (num-decks (count players))))]
-    (Game. players rules contracts deck [] action-fn)))
+    (Game. players rules contracts deck [] draw-choice-fn action-fn)))
 
 (defn current-contract [game] (get-in game [:current-hand :contract]))
 
@@ -88,27 +91,51 @@
         (assoc :deck deck)
         (update-players players))))
 
-(defn round-of-play [game] game)  ;; TODO
-
-(defn discard [game card])  ;; TODO
+(defn discard [game card] game)  ;; TODO
 
 (defn index-relative-to-dealer [relative-index game]
   ;; use (count (:hands game)) as a counter that increments after each hand
   (mod (+ (count (:hands game)) relative-index) (count (players game))))
 
-(defn player-id-at-index-relative-to-dealer [relative-index game]
-  (:id (nth (players game) (index-relative-to-dealer relative-index game))))
-
-(def dealer-id (partial player-id-at-index-relative-to-dealer 0))
-
-(defn is-dealer? [game player] (= (:id player) (dealer-id game)))
+(def left-of-dealer-index (partial index-relative-to-dealer 1))
 
 (defn available-actions [game player])  ;; TODO
 
-(defn action-fn-state [game player]
+;; TODO - include other player melds in action fn state
+(defn action-fn-state [game player new-card]
   {:player player
    :contract (current-contract game)
+   :new-card new-card
    :allowed-actions (available-actions game player)})
+
+(defn player-turn [game player-id]
+  (let [{:keys [action-fn current-hand deck draw-choice-fn]} game
+        upcard (:upcard current-hand)
+        player (get-in game [:players player-id])
+        draw-choice (if (nil? upcard) :deck (draw-choice-fn player upcard))
+        [draw-card game] (if (= draw-choice :deck)
+                           (let [[top-card deck] (draw deck)] [top-card (assoc game :deck deck)])
+                           [upcard (update game :current-hand dissoc :upcard)])
+        actions (action-fn (action-fn-state game player draw-card))]
+    (loop [game game
+           actions actions]
+      (if-let [{:keys [action card]} (first actions)]
+        (let [actions (rest actions)]
+          (case action
+            :discard (recur (discard game card) actions)
+            (throw (IllegalStateException. (str "Unknown action: " (pr-str action))))))
+        game))))  ;; TODO - need to do any checks? (did player discard, etc.)
+
+(defn round-of-play [game]
+  (let [player-ids (map :id (rotate (left-of-dealer-index game) (players game)))]
+    (loop [game game
+           player-ids (cycle player-ids)]
+      (let [player-id (first player-ids)
+            game (player-turn game player-id)
+            player (get-in game [:players player-id])]
+        (if (empty? (:hand player))
+          game
+          (recur game (rest player-ids)))))))
 
 (defn score-hand
   ([hand] (score-hand hand default-point-values))

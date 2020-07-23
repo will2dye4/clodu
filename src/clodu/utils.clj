@@ -5,6 +5,11 @@
 
 (def sum (partial reduce +))
 
+(defn rotate
+  "Take a sequence and left rotates it n steps. If n is negative, the collection is rotated right."
+  [n coll]
+  (let [c (count coll)] (take c (drop (mod n c) (cycle coll)))))
+
 (defn map-vals
   ([f m]
     (map-vals f {} m))
