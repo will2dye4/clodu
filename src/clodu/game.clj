@@ -1,9 +1,9 @@
 (ns clodu.game
   (:require [clodu.cards :refer [add draw draw-hands new-decks]]
             [clodu.constants :refer [max-players min-players]]
-            [clodu.contract :refer [default-contracts]]
+            [clodu.contract :refer [default-contracts is-run? is-set?]]
             [clodu.player :refer [new-player]]
-            [clodu.utils :refer [map-vals rotate sum]]))
+            [clodu.utils :refer [enumerate map-vals rotate sum]]))
 
 (def ^:const default-wild-cards #{:2 :joker})
 
@@ -36,7 +36,7 @@
 
 (defrecord Hand [contract discards])
 
-(defn new-hand [contract] (Hand. contract []))
+(defn new-hand [contract] (Hand. contract '()))
 
 (defrecord Game [players rules contracts deck hands draw-choice-fn action-fn])
 
@@ -64,8 +64,11 @@
 
 (defn players [game] (vals (:players game)))
 
-(defn update-player [game player f & args]
-  (apply update-in game [:players (:id player)] f args))
+(defn update-player
+  ([game player]
+    (assoc-in game [:players (:id player)] player))
+  ([game player f & args]
+    (update-player game (apply update player f args))))
 
 (defn update-players [game players]
   (assoc game :players (if (sequential? players)
@@ -91,7 +94,46 @@
         (assoc :deck deck)
         (update-players players))))
 
-(defn discard [game card] game)  ;; TODO
+(defn discard
+  ([game player-id card] (discard game player-id card false))
+  ([game player-id card call-shanghai?]
+   (if (and call-shanghai? (not (get-in game [:rules :allow-calling-shanghai?])))
+     (throw (IllegalArgumentException. "Game rules do not permit calling shanghai!"))
+     (let [game (-> game
+                    (update-in [:current-hand :discards] conj card)
+                    (update-in [:players player-id :hand] #(vec (remove #{card} %))))]
+       (if call-shanghai?
+         game
+         (assoc-in game [:current-hand :upcard] card))))))
+
+(defn validate-melds [game melds]
+  (loop [contract (current-contract game)]
+    (if-let [[contract-type [num-melds num-cards-per-meld]] (first contract)]
+      (let [contract-type-melds (melds contract-type)
+            validate-fn (partial (if (= :runs contract-type) is-run? is-set?) (get-in game [:rules :wild-cards]))
+            validate-meld (fn [cards] (and (= num-cards-per-meld (count cards)) (validate-fn cards)))
+            error (fn [& msg] (throw (IllegalStateException. ^String (apply str msg))))]
+        (cond
+          (not= num-melds (count contract-type-melds)) (error "Must have " num-melds " " contract-type " to meld!")
+          (not-every? validate-meld contract-type-melds) (error "One or more " contract-type " is invalid!")
+          :else (recur (rest contract))))
+      melds)))
+
+(defn meld [game player-id melds]
+  (let [melds (validate-melds game melds)
+        meld-cards (set (flatten (vals melds)))
+        player (-> (get-in game [:players player-id])
+                   (assoc :melds melds)
+                   (update :hand #(vec (remove meld-cards %))))]
+    (update-player game player)))
+
+;; TODO - ensure it's a real down and out?
+(defn down-and-out [game player-id melds final-card]
+  (-> game
+      (meld player-id melds)
+      (discard player-id final-card)))
+
+(defn play-cards [game player-id plays] game)  ;; TODO
 
 (defn index-relative-to-dealer [relative-index game]
   ;; use (count (:hands game)) as a counter that increments after each hand
@@ -99,43 +141,62 @@
 
 (def left-of-dealer-index (partial index-relative-to-dealer 1))
 
-(defn available-actions [game player])  ;; TODO
-
-;; TODO - include other player melds in action fn state
-(defn action-fn-state [game player new-card]
-  {:player player
-   :contract (current-contract game)
-   :new-card new-card
-   :allowed-actions (available-actions game player)})
-
-(defn player-turn [game player-id]
-  (let [{:keys [action-fn current-hand deck draw-choice-fn]} game
+(defn draw-card [game player-id]
+  (let [{:keys [current-hand deck draw-choice-fn]} game
         upcard (:upcard current-hand)
         player (get-in game [:players player-id])
         draw-choice (if (nil? upcard) :deck (draw-choice-fn player upcard))
-        [draw-card game] (if (= draw-choice :deck)
-                           (let [[top-card deck] (draw deck)] [top-card (assoc game :deck deck)])
-                           [upcard (update game :current-hand dissoc :upcard)])
-        actions (action-fn (action-fn-state game player draw-card))]
+        [drawn-card game] (if (= draw-choice :deck)
+                            (let [[top-card deck] (draw deck)] [top-card (assoc game :deck deck)])
+                            [upcard (update game :current-hand #(-> % (dissoc :upcard) (update :discards drop 1)))])]
+    [drawn-card (update-in game [:players player-id :hand] conj drawn-card)]))
+
+(defn available-actions [game player])  ;; TODO
+
+;; TODO - include other player melds in action fn state
+(defn action-fn-state [game player-id new-card]
+  (let [player (get-in game [:players player-id])]
+    {:player player
+     :contract (current-contract game)
+     :new-card new-card
+     :allowed-actions (available-actions game player)}))
+
+(defn validate-actions [actions]
+  (let [action-type-indices (fn [type] (seq (map first (filter #(#{type} (:action (second %))) (enumerate actions)))))
+        discard-indices (action-type-indices :discard)
+        down-and-out-indices (action-type-indices :down-and-out)
+        total (+ (count discard-indices) (count down-and-out-indices))
+        error (fn [^String msg] (throw (IllegalStateException. msg)))]
+    (cond
+      (not= total 1) (error "Actions must include exactly one discard or down-and-out!")
+      (and discard-indices (not= (dec (count actions)) (first discard-indices))) (error "Discard must be the last action!")
+      (and down-and-out-indices (not= (count actions) 1)) (error "Down-and-out must be the only action!")
+      :else actions)))
+
+(defn player-turn [game player-id]
+  (let [[drawn-card game] (draw-card game player-id)
+        actions (validate-actions ((:action-fn game) (action-fn-state game player-id drawn-card)))]
     (loop [game game
            actions actions]
-      (if-let [{:keys [action card]} (first actions)]
-        (let [actions (rest actions)]
-          (case action
-            :discard (recur (discard game card) actions)
-            (throw (IllegalStateException. (str "Unknown action: " (pr-str action))))))
-        game))))  ;; TODO - need to do any checks? (did player discard, etc.)
+      (if-let [{:keys [action card melds plays call-shanghai?]} (first actions)]
+        (let [game (case action
+                     :discard (discard game player-id card call-shanghai?)
+                     :down-and-out (down-and-out game player-id melds card)
+                     :meld (meld game player-id melds)
+                     :play-cards (play-cards game player-id plays)
+                     (throw (IllegalStateException. (str "Unknown action: " (pr-str action)))))]
+          (recur game (rest actions)))
+        game))))
 
 (defn round-of-play [game]
   (let [player-ids (map :id (rotate (left-of-dealer-index game) (players game)))]
     (loop [game game
            player-ids (cycle player-ids)]
       (let [player-id (first player-ids)
-            game (player-turn game player-id)
-            player (get-in game [:players player-id])]
-        (if (empty? (:hand player))
+            game (player-turn game player-id)]
+        (if (empty? (get-in game [:players player-id :hand]))
           game
-          (recur game (rest player-ids)))))))
+          (recur game (rest player-ids)))))))  ;; TODO - offer other players a chance to buy
 
 (defn score-hand
   ([hand] (score-hand hand default-point-values))
@@ -146,7 +207,6 @@
         update-score (fn [player] (update player :score + (score-hand (:hand player) point-values)))]
     (update-players game (map update-score (players game)))))
 
-;; TODO - add player melds
 (defn recycle-cards [game]
   (let [{:keys [current-hand]} game
         players (players game)
@@ -154,10 +214,15 @@
                    (map :hand)
                    (remove nil?)
                    flatten)
-        cards (concat hands (:discards current-hand))]
+        melds (->> players
+                   (map :melds)
+                   (remove nil?)
+                   (map vals)
+                   flatten)
+        cards (concat hands melds (:discards current-hand))]
     (-> game
         (update :deck add cards)
-        (update-players (map #(dissoc %1 :hand) players)))))
+        (update-players (map #(dissoc % :hand :melds) players)))))
 
 (defn conclude-hand [game]
   (-> game
