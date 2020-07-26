@@ -86,13 +86,15 @@
     (doseq [handler handlers] (handler event)))
   game)
 
+;; TODO - draw an upcard
 (defn deal-hand [game contract]
   (let [[hands deck] (draw-hands (count (players game)) (get-in game [:rules :cards-per-hand]) (shuffle (:deck game)))
         players (map #(assoc %1 :hand %2) (players game) hands)]
     (-> game
         (assoc :current-hand (new-hand contract))
         (assoc :deck deck)
-        (update-players players))))
+        (update-players players)
+        (#(emit % (event :begin-hand %))))))
 
 (defn discard
   ([game player-id card] (discard game player-id card false))
@@ -114,8 +116,8 @@
             validate-meld (fn [cards] (and (= num-cards-per-meld (count cards)) (validate-fn cards)))
             error (fn [& msg] (throw (IllegalStateException. ^String (apply str msg))))]
         (cond
-          (not= num-melds (count contract-type-melds)) (error "Must have " num-melds " " contract-type " to meld!")
-          (not-every? validate-meld contract-type-melds) (error "One or more " contract-type " is invalid!")
+          (not= num-melds (count contract-type-melds)) (error "Must have " num-melds " " (name contract-type) " to meld!")
+          (not-every? validate-meld contract-type-melds) (error "One or more " (name contract-type) " is invalid!")
           :else (recur (rest contract))))
       melds)))
 
@@ -151,15 +153,11 @@
                             [upcard (update game :current-hand #(-> % (dissoc :upcard) (update :discards drop 1)))])]
     [drawn-card (update-in game [:players player-id :hand] conj drawn-card)]))
 
-(defn available-actions [game player])  ;; TODO
-
-;; TODO - include other player melds in action fn state
 (defn action-fn-state [game player-id new-card]
-  (let [player (get-in game [:players player-id])]
-    {:player player
-     :contract (current-contract game)
-     :new-card new-card
-     :allowed-actions (available-actions game player)}))
+  {:player (get-in game [:players player-id])
+   :contract (current-contract game)
+   :new-card new-card
+   :played-melds (map-vals :melds (:players game))})
 
 (defn validate-actions [actions]
   (let [action-type-indices (fn [type] (seq (map first (filter #(#{type} (:action (second %))) (enumerate actions)))))
@@ -175,16 +173,18 @@
 
 (defn player-turn [game player-id]
   (let [[drawn-card game] (draw-card game player-id)
+        _ (emit game (event :player-to-act game (get-in game [:players player-id])))
         actions (validate-actions ((:action-fn game) (action-fn-state game player-id drawn-card)))]
     (loop [game game
            actions actions]
-      (if-let [{:keys [action card melds plays call-shanghai?]} (first actions)]
+      (if-let [{:keys [action card melds plays call-shanghai?] :as action-map} (first actions)]
         (let [game (case action
                      :discard (discard game player-id card call-shanghai?)
                      :down-and-out (down-and-out game player-id melds card)
                      :meld (meld game player-id melds)
                      :play-cards (play-cards game player-id plays)
                      (throw (IllegalStateException. (str "Unknown action: " (pr-str action)))))]
+          (emit game (event :player-action (get-in game [:players player-id]) action-map))
           (recur game (rest actions)))
         game))))
 
@@ -195,7 +195,7 @@
       (let [player-id (first player-ids)
             game (player-turn game player-id)]
         (if (empty? (get-in game [:players player-id :hand]))
-          game
+          (emit game (event :win (get-in game [:players player-id])))
           (recur game (rest player-ids)))))))  ;; TODO - offer other players a chance to buy
 
 (defn score-hand

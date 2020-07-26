@@ -1,5 +1,5 @@
 (ns clodu.utils
-  (:import (java.io Writer)))
+  (:import (java.io EOFException Writer)))
 
 (def enumerate (partial map-indexed vector))
 
@@ -32,3 +32,11 @@
 
 (defn sorted-map-by-value [m]
   (into (sorted-map-by (value-comparator m)) m))
+
+(defn input [prompt]
+  (print prompt)
+  (flush)
+  (let [raw-input (read-line)]
+    (if (nil? raw-input)
+      (throw (EOFException.))
+      raw-input)))
