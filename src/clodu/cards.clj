@@ -67,7 +67,7 @@
   {:pre [(set? wild-cards) (seqable? cards)]}
   (filter (partial is-natural-card? wild-cards) cards))
 
-(defn sort-cards [cards] (-> cards sort reverse vec))
+(defn sort-cards [cards] (vec (sort cards)))
 
 (defn card [rank suit] (Card. (ranks rank) (suits suit)))
 

@@ -1,7 +1,9 @@
 (ns clodu.core
   (:require [clojure.pprint]
             [clojure.string :as str]
-            [clodu.cards :refer [->Card joker new-deck ranks suits]])
+            [clodu.cards :refer [->Card joker new-deck ranks suits]]
+            [clodu.cli :refer [new-cli-game]]
+            [clodu.game :refer [play]])
   (:gen-class))
 
 (def deck (new-deck))
@@ -26,6 +28,6 @@
 (defn cs [& rank-suits] (map c rank-suits))
 
 (defn -main
-  "I don't do a whole lot ... yet."
+  "Play an interactive game of shanghai at the command line."
   [& args]
-  (println "Hello, World!"))
+  (play (new-cli-game)))

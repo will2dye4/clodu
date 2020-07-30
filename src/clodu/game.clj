@@ -1,5 +1,5 @@
 (ns clodu.game
-  (:require [clodu.cards :refer [add draw draw-hands new-decks]]
+  (:require [clodu.cards :refer [add draw draw-hands new-decks sort-cards]]
             [clodu.constants :refer [max-players min-players]]
             [clodu.contract :refer [default-contracts is-run? is-set?]]
             [clodu.player :refer [new-player]]
@@ -113,7 +113,7 @@
     (if-let [[contract-type [num-melds num-cards-per-meld]] (first contract)]
       (let [contract-type-melds (melds contract-type)
             validate-fn (partial (if (= :runs contract-type) is-run? is-set?) (get-in game [:rules :wild-cards]))
-            validate-meld (fn [cards] (and (= num-cards-per-meld (count cards)) (validate-fn cards)))
+            validate-meld (fn [cards] (and (>= (count cards) num-cards-per-meld) (validate-fn cards)))
             error (fn [& msg] (throw (IllegalStateException. ^String (apply str msg))))]
         (cond
           (not= num-melds (count contract-type-melds)) (error "Must have " num-melds " " (name contract-type) " to meld!")
@@ -126,7 +126,7 @@
         meld-cards (set (flatten (vals melds)))
         player (-> (get-in game [:players player-id])
                    (assoc :melds melds)
-                   (update :hand #(vec (remove meld-cards %))))]
+                   (update :hand #(vec (remove meld-cards %))))]  ;; TODO fix - this will remove ALL cards of the same rank/suit
     (update-player game player)))
 
 ;; TODO - ensure it's a real down and out?
@@ -150,12 +150,13 @@
         draw-choice (if (nil? upcard) :deck (draw-choice-fn player upcard))
         [drawn-card game] (if (= draw-choice :deck)
                             (let [[top-card deck] (draw deck)] [top-card (assoc game :deck deck)])
-                            [upcard (update game :current-hand #(-> % (dissoc :upcard) (update :discards drop 1)))])]
-    [drawn-card (update-in game [:players player-id :hand] conj drawn-card)]))
+                            [upcard (update game :current-hand #(-> % (dissoc :upcard) (update :discards (partial drop 1))))])]
+    [drawn-card (update-in game [:players player-id :hand] #(sort-cards (conj % drawn-card)))]))
 
 (defn action-fn-state [game player-id new-card]
   {:player (get-in game [:players player-id])
    :contract (current-contract game)
+   :rules (:rules game)
    :new-card new-card
    :played-melds (map-vals :melds (:players game))})
 
@@ -172,7 +173,7 @@
       :else actions)))
 
 (defn player-turn [game player-id]
-  (let [[drawn-card game] (draw-card game player-id)
+  (let [[drawn-card game] (draw-card game player-id)  ;; TODO - emit event before this (so hand can be shown)?
         _ (emit game (event :player-to-act game (get-in game [:players player-id])))
         actions (validate-actions ((:action-fn game) (action-fn-state game player-id drawn-card)))]
     (loop [game game

@@ -1,5 +1,7 @@
 (ns clodu.cli
   (:require [clojure.string :as str]
+            [clodu.cards :refer [new-deck]]
+            [clodu.contract :refer [is-run? is-set?]]
             [clodu.game :refer :all]
             [clodu.utils :refer [input]]))
 
@@ -14,7 +16,9 @@
        (map (fn [[type [num-melds num-cards]]] (format "%d %s of %d" num-melds (pluralize-contract-type type num-melds) num-cards)))
        (str/join " and ")))
 
-(defn melds->str [melds] (str/join "  " (vals melds)))
+(defn flatten-melds [melds] (apply str (interpose "  " melds)))
+
+(defn melds->str [melds] (flatten-melds (remove empty? (map flatten-melds (vals melds)))))
 
 (defn show-board [game]
   (when-let [current-hand (:current-hand game)]
@@ -72,19 +76,107 @@
 
 (defmethod cli-event-handler :default [_])  ;; do nothing
 
-(defn cli-draw-choice-fn [player upcard] :deck)  ;; TODO
+(defn card-strs-equal? [& strs]
+  (apply = (map #(str/replace % "\uFE0E" "") strs)))
 
-(def ^:private action-names (sorted-map "discard" :discard, "down-and-out" :down-and-out, "meld" :meld, "play" :play-cards))
+(defn str->card [card-str]
+  (->> (new-deck)
+       (filter #(card-strs-equal? card-str (str %)))
+       first))
 
-(defn cli-action-fn [state]
-  (let [{:keys [player]} state
-        prompt (format "%s may %s: " (:name player) (str/join ", " (keys action-names)))]
+(def ^:const card-re #"((?i:10|[23456789JQKA])[♠♥♦♣]|<\?>)")
+
+(defn parse-cards [card-str]
+  (loop [matcher (re-matcher card-re (str/upper-case card-str))
+         cards []]
+    (if-let [match (re-find matcher)]
+      (recur matcher (conj cards (str->card (first match))))
+      cards)))
+
+(defn sanitized-input [prompt] (str/lower-case (str/trim (input prompt))))
+
+(defn cli-draw-choice-fn [player upcard]
+  (let [prompt (str (:name player) " may draw from the deck or take the current upcard (" upcard "). Enter 'deck' or 'upcard': ")]
     (loop []
-      (let [args (str/split (input prompt) #"\s+")
+      (let [choice (sanitized-input prompt)]
+        (if (#{"deck" "upcard"} choice)
+          (keyword choice)
+          (do (println "Invalid choice!") (recur)))))))
+
+(defn parse-discard-action [player rules args]
+  (if-not (#{1 2} (count args))
+    (println "Invalid discard action! (wrong number of arguments)")
+    (let [card (first args)
+          shanghai? (or (second args) "")]
+      (if-not (#{"" "shanghai"} shanghai?)
+        (println "Invalid discard action! (invalid shanghai argument)")
+        (let [shanghai? (= shanghai? "shanghai")]
+          (if (and shanghai? (not (:allow-calling-shanghai? rules)))
+            (println "Invalid discard action! (calling shanghai not allowed)")
+            (let [cards (parse-cards card)]
+              (if (not= (count cards) 1)
+                (println "Invalid discard action! (invalid card argument)")
+                (let [card (first cards)]
+                  (if-not ((set (:hand player)) card)
+                    (println "Invalid discard action! (card not in player's hand)")
+                    {:action :discard, :card card, :call-shanghai? shanghai?}))))))))))
+
+(defn parse-meld-args [wild-cards args]
+  (loop [parsed-melds {:sets [] :runs []}
+         all-melds (map parse-cards args)]
+    (if-let [meld (first all-melds)]
+      (let [all-melds (rest all-melds)
+            parsed-melds (cond
+                           (is-set? wild-cards meld) (update parsed-melds :sets conj meld)
+                           (is-run? wild-cards meld) (update parsed-melds :runs conj meld)
+                           :else parsed-melds)]
+        (recur parsed-melds all-melds))
+      parsed-melds)))
+
+(defn has-all-cards? [hand cards]
+  (let [distinct-cards (set cards)
+        hand-cards (filter distinct-cards hand)]
+    (>= (count hand-cards) (count cards))))
+
+(defn parse-meld-action [player current-contract rules args]
+  (let [{:keys [hand]} player
+        {:keys [wild-cards]} rules
+        melds (parse-meld-args wild-cards args)]
+    (if-not (has-all-cards? hand (flatten (vals melds)))
+      (println "Invalid meld action! (cards not in player's hand)")
+      (loop [contract current-contract]
+        (if-let [[contract-type [num-melds num-cards-per-meld]] (first contract)]
+          (let [contract-type-melds (melds contract-type)]
+            (cond
+              (not= num-melds (count contract-type-melds)) (println (format "Invalid meld action! (must have %d %s)" num-melds (name contract-type)))
+              (not-every? #(>= (count %) num-cards-per-meld) contract-type-melds) (println (format "Invalid meld action! (invalid %s)" (name contract-type)))
+              :else (recur (rest contract))))
+          {:action :meld, :melds melds})))))
+
+(defn available-actions [player prev-actions]
+  (let [{:keys [melds]} player
+        prev-actions (set (map :action prev-actions))]
+    (concat ["discard"] (if (and (not melds) (not (prev-actions :meld))) ["down-and-out" "meld"] ["play"]))))
+
+;; TODO - parse remaining actions
+(defn cli-action-fn [state]
+  (let [{:keys [contract new-card player rules]} state
+        {:keys [name]} player
+        prompt (str name " may %s: ")]
+    (println name "drew" new-card)
+    (loop [actions []]
+      (let [allowed-actions (available-actions player actions)
+            args (str/split (sanitized-input (format prompt (str/join ", " allowed-actions))) #"\s+")
             verb (first args)]
         (cond
-          (not (action-names verb)) (do (println "Invalid action!") (recur))
-          :else (default-action-fn state))))))  ;; TODO - parse action
+          (not ((set allowed-actions) verb)) (do (println "Invalid action!") (recur actions))
+          (= verb "discard") (if-let [action (parse-discard-action player rules (rest args))]
+                               (conj actions action)
+                               (recur actions))
+          (= verb "meld") (if-let [action (parse-meld-action player contract rules (rest args))]
+                            (recur (conj actions action))
+                            (recur actions))
+          :else (do (println "Action not supported yet!") (recur actions)))))))
 
 (def ^:private auto-draw-choice-fn default-draw-choice-fn)
 
